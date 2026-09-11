@@ -13,10 +13,11 @@ App（src/main.ts）
     │   ├── DemoApi        … API Gateway + Lambda
     │   ├── DemoWebsite    … CloudFront + S3
     │   └── RuntimeConfig  … AppConfig と runtime-config.json（自動で追加される）
-    └── Stack: Application/DemoWebsite/waf                          … us-east-1（CloudFront 用 WAF）
+    └── Stack: Application/DemoWebsite/waf                          … us-east-1（CloudFront 用 WAF。WAF 有効時のみ）
 ```
 
 CloudFormation 上のスタック名は `aws-nx-pl-infra-sandbox-Application` です。
+sandbox 環境は WAF を無効にしているので、us-east-1 の WAF スタックは作られません（[環境ごとの設定](#環境ごとの設定料金とセキュリティ) 参照）。
 
 ### src/main.ts
 
@@ -29,10 +30,14 @@ new ApplicationStage(app, 'aws-nx-pl-infra-sandbox', {
     account: process.env.CDK_DEFAULT_ACCOUNT,  // 手元の認証情報のアカウント
     region: process.env.CDK_DEFAULT_REGION,    // 手元の設定のリージョン
   },
+  // 開発用なので料金を抑える設定にしている
+  enableWaf: false,
+  userPoolFeaturePlan: FeaturePlan.ESSENTIALS,
 });
 ```
 
 本番環境などを追加するときは、ここに Stage を増やします。
+`enableWaf` と `userPoolFeaturePlan` を省略すると、安全側の既定値（WAF 有効、Cognito Plus プラン）になります。
 
 ```ts
 new ApplicationStage(app, 'aws-nx-pl-infra-prod', {
@@ -40,32 +45,83 @@ new ApplicationStage(app, 'aws-nx-pl-infra-prod', {
 });
 ```
 
+## 環境ごとの設定（料金とセキュリティ）
+
+`ApplicationStage` には、料金とセキュリティのバランスを決める2つのオプションがあります。
+
+| オプション | 既定値 | sandbox の設定 | 説明 |
+|---|---|---|---|
+| `enableWaf` | `true` | `false` | Cognito User Pool、API Gateway、CloudFront の3か所に WAF を付けるか |
+| `userPoolFeaturePlan` | `FeaturePlan.PLUS` | `FeaturePlan.ESSENTIALS` | Cognito User Pool の機能プラン |
+
+### 料金の違い
+
+2026年9月時点の料金です（東京リージョンで試算）。最新の料金は各サービスの料金ページで確認してください。
+
+| 項目 | 既定値（本番向け） | sandbox |
+|---|---|---|
+| WAF | Web ACL 3つ × （$5 + マネージドルール2つ × $1）= **月 $21**、ほかに $0.60 / 100万リクエスト | **$0** |
+| Cognito | **$0.02 / MAU**（Plus プランには無料枠がない） | 10,000 MAU まで **$0**、超過分は $0.015 / MAU |
+| KMS キー | 3つ（月 $3〜） | 2つ（月 $2〜。WAF ログ用のキーが作られないため） |
+| 使っていないときの固定費の目安 | **月 $25 前後** | **月 $2〜3 程度** |
+
+どちらの設定でも、API Gateway、Lambda、CloudWatch Logs などは利用量に応じて課金されます。
+
+### セキュリティ上の違い
+
+sandbox の設定では、次の保護がなくなります。**本番環境では既定値を使ってください。**
+
+- **WAF がない:** 一般的な攻撃パターン（Common Rule Set）や既知の悪意ある入力（Known Bad Inputs）がブロックされない。WAF がない状態でも API は IAM 認証で保護されている
+- **脅威保護がない:** Cognito の脅威保護（不審なサインインの検知など）は Plus プラン限定の機能で、Essentials では使えない
+
+Checkov は「CloudFront に WAF が付いていない」（`CKV_AWS_68`）を検出します。
+`enableWaf: false` のときだけ、理由を付けてこのルールを抑制しています（`application-stack.ts`）。
+
+### 既存の環境で設定を変えるとき
+
+- **Cognito のプランの切り替え:** 既存の User Pool のままプランを切り替えられる（User Pool が作り直されることはない）
+- **WAF の有効化・無効化:** 再デプロイで Web ACL が作成・削除される。WAF を有効にする場合は、us-east-1 のブートストラップが必要（下記参照）
+
 ### src/stacks/application-stack.ts
 
 作るリソースを組み立てるファイルです。**インフラを変更するときは、主にここを編集します。**
 
 ```ts
 export class ApplicationStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props?: ApplicationStackProps) {
     super(scope, id, props);
 
+    const enableWaf = props?.enableWaf ?? true;
+
     // Cognito（User Pool + Identity Pool）
-    const userIdentity = new UserIdentity(this, 'UserIdentity');
+    const userIdentity = new UserIdentity(this, 'UserIdentity', {
+      enableWaf,
+      featurePlan: props?.userPoolFeaturePlan,
+    });
 
     // tRPC API。procedure ごとに Lambda を作る
     const demoApi = new DemoApi(this, 'DemoApi', {
       integrations: DemoApi.defaultIntegrations(this).build(),
+      enableWaf,
     });
     // ログイン済みユーザーのロールに API の呼び出しを許可
     demoApi.grantInvokeAccess(userIdentity.identityPool.authenticatedRole);
 
     // Web サイト（CloudFront + S3）
-    const demoWebsite = new DemoWebsite(this, 'DemoWebsite');
+    const demoWebsite = new DemoWebsite(this, 'DemoWebsite', { enableWaf });
     // CORS をこの Web サイトのドメインに限定
     demoApi.restrictCorsTo(demoWebsite);
+
+    // WAF を意図的に無効にした環境では、Checkov の WAF チェックを抑制する
+    if (!enableWaf) {
+      suppressRules(demoWebsite.cloudFrontDistribution, ['CKV_AWS_68'], '...');
+    }
   }
 }
 ```
+
+スタックの内容は `src/stacks/application-stack.spec.ts` のテストで確認しています。
+既定値と sandbox の設定のそれぞれで WAF と Cognito のプランが正しく反映されること、ログイン済みユーザーに API の呼び出しが許可されていることをテストしています。
 
 ## デプロイの前提
 
@@ -94,7 +150,7 @@ pnpm nx run @aws-nx-pl/infra:synth
 pnpm nx run @aws-nx-pl/infra:bootstrap
 ```
 
-CloudFront 用の WAF スタックは us-east-1 にデプロイされるため、us-east-1 のブートストラップも必要です。
+WAF を有効にした環境では、CloudFront 用の WAF スタックが us-east-1 にデプロイされるため、us-east-1 のブートストラップも必要です（sandbox は WAF 無効なので不要）。
 環境を指定しない `cdk bootstrap` は、アプリが使うすべての環境（メインのリージョンと us-east-1）をまとめてブートストラップします。
 デプロイ時に us-east-1 がブートストラップされていないというエラーが出た場合は、明示的に指定します。
 
@@ -173,7 +229,7 @@ pnpm nx run @aws-nx-pl/infra:destroy-sandbox
 | リソース | 後始末の方法 |
 |---|---|
 | Cognito User Pool（と SMS 用 IAM ロール） | 削除保護も有効。コンソールで削除保護を無効にしてから削除する |
-| KMS キー（User Pool の WAF ログ用、API ログ用、Web サイト用） | KMS コンソールで削除をスケジュールする（最短7日後に削除） |
+| KMS キー（API ログ用、Web サイト用。WAF 有効時は User Pool の WAF ログ用も） | KMS コンソールで削除をスケジュールする（最短7日後に削除）。残っている間は1つあたり月 $1 以上かかる |
 | API Gateway のアクセスロググループ | CloudWatch Logs コンソールで削除する |
 | API Gateway の CloudWatch 用 IAM ロール | アカウント共通の設定。ほかの API Gateway が使っている可能性があるので、通常は残してよい |
 | CDK のブートストラップ用リソース（`CDKToolkit` スタック） | ほかの CDK アプリでも使うので、通常は残してよい |

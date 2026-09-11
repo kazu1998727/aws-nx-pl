@@ -93,7 +93,17 @@ pnpm nx run @aws-nx-pl/infra:deploy-sandbox
 ```
 
 デプロイ先は、実行時の AWS 認証情報のアカウントとリージョンです（`CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION`）。
-CloudFront 用の WAF だけは us-east-1 にデプロイされます。
+
+sandbox 環境は開発用なので、料金を抑える設定になっています。
+
+| 設定 | sandbox | 本番向けの既定値 |
+|---|---|---|
+| WAF | 無効 | 有効（Cognito、API、CloudFront） |
+| Cognito の機能プラン | Essentials（10,000 MAU まで無料） | Plus（脅威保護あり、無料枠なし） |
+| 使っていないときの固定費の目安 | 月 $2〜3 程度 | 月 $25 前後 |
+
+本番環境を追加するときは、既定値のまま使ってください。
+詳しくは [docs/infrastructure.md](./docs/infrastructure.md#環境ごとの設定料金とセキュリティ) を参照してください。
 
 ### 4. ユーザーを作成してログインする
 

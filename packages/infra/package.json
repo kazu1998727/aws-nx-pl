@@ -1,0 +1,16 @@
+{
+  "name": "@aws-nx-pl/infra",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-nx-pl/common-constructs": "workspace:*",
+    "aws-cdk-lib": "catalog:",
+    "constructs": "catalog:",
+    "source-map-support": "catalog:",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}

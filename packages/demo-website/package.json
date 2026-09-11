@@ -1,0 +1,29 @@
+{
+  "name": "@aws-nx-pl/demo-website",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-nx-pl/common-shadcn": "workspace:*",
+    "@aws-nx-pl/demo-api": "workspace:*",
+    "@aws-sdk/credential-provider-cognito-identity": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-query-devtools": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "@trpc/client": "catalog:",
+    "@trpc/tanstack-react-query": "catalog:",
+    "aws4fetch": "catalog:",
+    "event-source-polyfill": "catalog:",
+    "lucide-react": "catalog:",
+    "oidc-client-ts": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-oidc-context": "catalog:",
+    "tailwindcss": "catalog:"
+  },
+  "devDependencies": {
+    "@smithy/types": "catalog:",
+    "@types/event-source-polyfill": "catalog:",
+    "@types/node": "catalog:"
+  }
+}

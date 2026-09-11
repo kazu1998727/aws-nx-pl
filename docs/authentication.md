@@ -11,12 +11,12 @@
 
 | リソース | 役割 | 主な設定 |
 |---|---|---|
-| User Pool | ユーザーのディレクトリ | セルフサインアップ無効、MFA 必須（SMS / TOTP）、パスワードは8文字以上で英大小文字・数字・記号が必須、メールアドレスでもログイン可能 |
+| User Pool | ユーザーのディレクトリ | セルフサインアップ無効、MFA 必須（SMS / TOTP）、パスワードは8文字以上で英大小文字・数字・記号が必須、メールアドレスでもログイン可能。機能プランは既定が Plus（脅威保護を監査モードで有効）、sandbox は Essentials |
 | User Pool Domain | ログイン画面のドメイン | `nx-pl-demo-website-<AWS アカウント ID>.auth.<リージョン>.amazoncognito.com` |
 | User Pool Client | Web サイト用のクライアント | 認可コードフロー、スコープは `email openid profile` |
 | Managed Login Branding | ログイン画面のデザイン | Cognito 標準のデザイン |
 | Identity Pool | ID トークン → AWS 認証情報の交換 | 認証済みユーザーには「認証済みロール」を割り当てる |
-| WAF | User Pool の保護 | AWS マネージドルール |
+| WAF | User Pool の保護 | AWS マネージドルール。`enableWaf: false` のときは作られない（sandbox） |
 
 ログイン後のリダイレクト先（コールバック URL）には、次の URL が自動的に登録されます。
 
@@ -139,14 +139,27 @@ Amazon Cognito → ユーザープール → 対象のプール → ユーザー
 `UserIdentity` はプロパティで一部の設定を変更できます。
 
 ```ts
-import { Mfa } from 'aws-cdk-lib/aws-cognito';
+import { FeaturePlan, Mfa } from 'aws-cdk-lib/aws-cognito';
 
 new UserIdentity(this, 'UserIdentity', {
   mfa: Mfa.OPTIONAL,                           // MFA を任意にする
   mfaSecondFactor: { sms: false, otp: true },  // TOTP のみにする
-  enableWaf: true,
+  enableWaf: true,                             // WAF を付ける（既定値: true）
+  featurePlan: FeaturePlan.ESSENTIALS,         // 機能プラン（既定値: PLUS）
 });
 ```
+
+このアプリでは、`enableWaf` と `featurePlan` を `ApplicationStage` のオプション（`enableWaf`、`userPoolFeaturePlan`）から環境ごとに設定しています。
+[infrastructure.md](./infrastructure.md#環境ごとの設定料金とセキュリティ) を参照してください。
+
+機能プランには次の違いがあります。
+
+| プラン | 料金 | 脅威保護 |
+|---|---|---|
+| Plus | $0.02 / MAU（無料枠なし） | あり（このアプリでは監査モード `AUDIT_ONLY`） |
+| Essentials | 10,000 MAU まで無料、超過分は $0.015 / MAU | なし |
+
+Plus 以外のプランでは、脅威保護の設定は自動的に外れます。
 
 セルフサインアップの有効化など、それ以外の変更は `user-identity.ts` を直接編集します。
 このファイルはジェネレーターが生成したものなので、変更した箇所がわかるようにコメントを残すことをおすすめします。

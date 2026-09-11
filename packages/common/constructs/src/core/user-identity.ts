@@ -65,6 +65,13 @@ export interface UserIdentityProps {
    * @default { sms: true, otp: true }
    */
   readonly mfaSecondFactor?: MfaSecondFactor;
+
+  /**
+   * The user pool feature plan. Standard threat protection is only configured on the Plus plan.
+   *
+   * @default FeaturePlan.PLUS
+   */
+  readonly featurePlan?: FeaturePlan;
 }
 
 /**
@@ -87,6 +94,7 @@ export class UserIdentity extends Construct {
       enableWaf = true,
       mfa = Mfa.REQUIRED,
       mfaSecondFactor = { sms: true, otp: true },
+      featurePlan = FeaturePlan.PLUS,
     }: UserIdentityProps = {},
   ) {
     super(scope, id);
@@ -98,7 +106,7 @@ export class UserIdentity extends Construct {
     }
 
     this.region = Stack.of(this).region;
-    this.userPool = this.createUserPool(mfa, mfaSecondFactor);
+    this.userPool = this.createUserPool(mfa, mfaSecondFactor, featurePlan);
 
     if (enableWaf) {
       this.webAcl = this.createWebAcl(
@@ -146,7 +154,11 @@ export class UserIdentity extends Construct {
     });
   }
 
-  private createUserPool = (mfa: Mfa, mfaSecondFactor: MfaSecondFactor) => {
+  private createUserPool = (
+    mfa: Mfa,
+    mfaSecondFactor: MfaSecondFactor,
+    featurePlan: FeaturePlan,
+  ) => {
     // Cognito rejects SmsConfiguration (emitted whenever phone is auto-verified) unless SMS is
     // also an enabled MFA method, for any non-OFF MfaConfiguration. So phone verification via SMS
     // can only be offered when SMS is actually usable as a second factor.
@@ -163,9 +175,13 @@ export class UserIdentity extends Construct {
         tempPasswordValidity: Duration.days(3),
       },
       mfa,
-      featurePlan: FeaturePlan.PLUS,
+      featurePlan,
       // Audit-only logs threat assessments without blocking sign-in. Switch to FULL_FUNCTION to enforce automatic responses.
-      standardThreatProtectionMode: StandardThreatProtectionMode.AUDIT_ONLY,
+      // Threat protection is a Plus plan feature, so it is left unset on other plans.
+      standardThreatProtectionMode:
+        featurePlan === FeaturePlan.PLUS
+          ? StandardThreatProtectionMode.AUDIT_ONLY
+          : undefined,
       mfaSecondFactor,
       signInCaseSensitive: false,
       signInAliases: { username: true, email: true },

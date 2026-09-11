@@ -78,17 +78,20 @@ sequenceDiagram
 
 | 分類 | リソース | 説明 |
 |---|---|---|
-| 認証 | Cognito User Pool | ユーザーのディレクトリ。MFA 必須、セルフサインアップ無効。スタックを削除しても**残る**（Retain） |
+| 認証 | Cognito User Pool | ユーザーのディレクトリ。MFA 必須、セルフサインアップ無効。既定は Plus プラン（脅威保護あり）、sandbox は Essentials プラン。スタックを削除しても**残る**（Retain） |
 | 認証 | User Pool Client / Domain / Managed Login | ログイン画面（Cognito のマネージドログイン）の設定 |
 | 認証 | Identity Pool + 認証済みロール | ログイン済みユーザーに一時的な AWS 認証情報を発行する |
-| 認証 | WAF（REGIONAL） | User Pool を保護する |
-| API | API Gateway REST API | IAM 認証。WAF（REGIONAL）付き。アクセスログは KMS で暗号化 |
+| 認証 | WAF（REGIONAL） | User Pool を保護する。**WAF 有効時のみ** |
+| API | API Gateway REST API | IAM 認証。WAF（REGIONAL）付き（**WAF 有効時のみ**）。アクセスログは KMS で暗号化 |
 | API | Lambda（`echo` など） | tRPC の procedure ごとに1つ作られる。Node.js 24、X-Ray トレース有効 |
 | Web | S3 バケット | ビルドした Web サイトと `runtime-config.json` を置く |
 | Web | CloudFront ディストリビューション | S3 を OAC 経由で配信する |
 | 設定 | AppConfig | Lambda が実行時に読む設定（Runtime Config のサーバー側） |
 
-### WAF スタック（us-east-1）
+### WAF スタック（us-east-1、WAF 有効時のみ）
+
+sandbox 環境は料金を抑えるために WAF を無効にしているので、このスタックは作られません。
+WAF を有効にした環境（`enableWaf` の既定値は `true`）では、次のように作られます。
 
 CloudFront 用の WAF は us-east-1 に作る必要があるため、別スタック
 （CDK 上のパスは `aws-nx-pl-infra-sandbox/Application/DemoWebsite/waf`）として自動的に作られます。
@@ -135,5 +138,5 @@ flowchart LR
 - **API の認可:** API Gateway は IAM 認証です。署名のないリクエストや、権限のないロールからのリクエストは拒否されます。例外として、ブラウザのプリフライト（`OPTIONS`）だけは誰でも通るようにしています
 - **権限付与:** `demoApi.grantInvokeAccess(userIdentity.identityPool.authenticatedRole)` で、Cognito にログインしたユーザーのロールだけに `execute-api:Invoke` を許可しています
 - **CORS:** `demoApi.restrictCorsTo(demoWebsite)` で、CloudFront のドメインからの呼び出しだけを許可しています。API Gateway のプリフライト応答も、この許可リストに従います。そのため、`localhost` で動かしている画面から**デプロイ済みの** API を直接呼ぶことはできません（ローカル開発では、画面はローカルの API サーバーを呼びます。[development-workflow.md](./development-workflow.md) を参照）
-- **WAF:** User Pool、API Gateway、CloudFront の3か所に AWS マネージドルール（Common Rule Set、Known Bad Inputs）を適用しています
+- **WAF:** User Pool、API Gateway、CloudFront の3か所に AWS マネージドルール（Common Rule Set、Known Bad Inputs）を適用しています。ただし、**sandbox 環境では料金を抑えるために無効**にしています。本番環境では既定値（有効）のまま使ってください（[infrastructure.md](./infrastructure.md#環境ごとの設定料金とセキュリティ) 参照）
 - **Checkov:** `infra:build` 実行時に、合成された CloudFormation テンプレートを Checkov でスキャンします
